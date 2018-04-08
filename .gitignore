@@ -1,0 +1,6 @@
+.stack-work/
+helloworld.cabal
+*~
+app/flap.hs
+app/temp.hs
+app/working-code.hs
