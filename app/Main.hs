@@ -30,12 +30,11 @@ data Action
   | Stop2Vel
   | BeginGame
 
--- | Represents the status of the player (i.e. where they're at).
 data GameStatus
-  = Playing  -- ^ The player is playing the game.
-  | Paused   -- ^ The game is paused.
-  | Waiting  -- ^ The player is waiting and needs to click to start the game.
-  | Dead     -- ^ The player is dead and needs to hit space to get to the waiting state.
+  = Playing
+  | Paused
+  | Waiting
+  | Dead
   deriving (Eq, Ord, Show)
 
 data Model = Model
@@ -167,6 +166,8 @@ update model@Model { .. } (Animate dt) =
     )
   where
     t = pure $ dt * 0.005
+    fvel vel dt' = vel + (gravity * dt')
+    fpos pos vel dt' = pos + (vel * dt') + (0.5 * gravity * dt' * dt')
     magn v = sqrt $ sum $ v * v
     distance a b = magn $ a - b
     dot a b = sum $ a * b
@@ -178,10 +179,13 @@ update model@Model { .. } (Animate dt) =
             y = pc2c bpos ppos  
 
     playerUpdate pos vel leftLimit rightLimit
-      | (yof (pos + (vel*t)) < baseline) && ((xof (pos + (vel*t)) >= leftLimit) && (xof (pos + (vel*t)) <= rightLimit)) =  (pos + (vel*t) + (gravity*0.5*t*t), vel + (gravity*t))
-      | yof (pos + (vel*t)) < baseline = (pos + (dampX (vel * t)) + (gravity*0.5*t*t), dampX (vel + (gravity*t)))
-      | (xof (pos + (vel*t)) >= leftLimit) && (xof (pos + (vel*t)) <= rightLimit) = ((\(V2 x y) -> (V2 x baseline)) (pos + (vel * t) + (gravity*0.5*t*t)), dampY (vel + (gravity*t)))
+      | (yof finalPos < baseline) && (xof finalPos >= leftLimit) && (xof finalPos <= rightLimit) = (finalPos, finalVel)
+      | yof finalPos < baseline = (pos + (dampX (vel * t)) + (gravity*0.5*t*t), dampX finalVel)
+      | (xof finalPos >= leftLimit) && (xof finalPos <= rightLimit) = ((\(V2 x y) -> (V2 x baseline)) finalPos, dampY finalVel)
       | otherwise = ((\(V2 x y) -> (V2 x baseline)) pos, (V2 0 0))
+      where
+        finalPos = fpos pos vel t
+        finalVel = fvel vel t
     
     (player1FinalPos, player1FinalVel) = playerUpdate player1Pos player1Vel playerRadius (((screenWidth - netWidth)/2) - playerRadius)
     
@@ -191,26 +195,27 @@ update model@Model { .. } (Animate dt) =
       | (distance ballTempPos ppos) <= (ballRadius + playerRadius) = True
       | otherwise = False
       where
-        (ballTempPos, ballTempVel) = (ballPos + (ballVel * t) + (0.5 * gravity * t * t), ballVel + (gravity * t))
+        ballTempPos = fpos ballPos ballVel t
+        ballTempVel = fvel ballVel t
 
     ballAfterCollision ppos pvel = let
         tcol = pure $ getCollisionTime ballPos ballVel ppos pvel
-        (x, y) = (ballPos + (ballVel * tcol) + (0.5 * gravity * tcol * tcol), ballVel + (gravity * tcol))
+        (x, y) = (fpos ballPos ballVel tcol, fvel ballVel tcol)
         v = reflect ppos x y
         tf = t - tcol
-        in (x + (v * tf) + (0.5 * gravity * tf * tf), v + (gravity * tf))
+        in (fpos x v tf, fvel v tf)
 
     (ballFinalPos, ballFinalVel)
       | doesCollide player1FinalPos = ballAfterCollision player1Pos player1Vel
       | doesCollide player2FinalPos = ballAfterCollision player2Pos player2Vel
       | (xof expBallPos <= ballRadius) || (xof expBallPos >= (screenWidth - ballRadius)) = (ballPos, reverseXVel ballVel)
-      | ((xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius)) && (yof expBallPos >= screenHeight - netHeight) = (ballPos, reverseXVel ballVel) 
-      | ((xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius)) && ((yof expBallPos <= screenHeight - netHeight) && (yof expBallPos >= screenHeight - netHeight - ballRadius)) = (ballPos, reflect expBallPos ballPos ballVel) 
+      | (xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius) && (yof expBallPos >= screenHeight - netHeight) = (ballPos, reverseXVel ballVel)
+      | (xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius) && (yof expBallPos <= screenHeight - netHeight) && (yof expBallPos >= screenHeight - netHeight - ballRadius) = (ballPos, reflect expBallPos ballPos ballVel)
       | yof expBallPos >= (screenHeight - ballRadius) = (ballPos, (V2 0 0))
       | otherwise = (expBallPos, expBallVel)
       where
-        expBallPos = ballPos + (ballVel * t) + (0.5 * gravity * t * t)
-        expBallVel = ballVel + (gravity * t)
+        expBallPos = fpos ballPos ballVel t
+        expBallVel = fvel ballVel t
         reverseXVel (V2 x y) = (V2 (-x) y)
     
     (score1, score2, chance1, chance2, status, lc, lw)
@@ -221,8 +226,8 @@ update model@Model { .. } (Animate dt) =
       | chance2' < 0 = (player1Score + 1, player2Score, 3, 3, Waiting, 0, 1)
       | otherwise = (player1Score, player2Score, chance1', chance2', Playing, lc', lastWin)
       where
-        touchGround = yof (ballPos + (ballVel*t) + (0.5 * gravity * t * t)) >= (screenHeight - ballRadius)
-        ballInLeft = (xof (ballPos+(ballVel * t)) > ballRadius) && (xof (ballPos+(ballVel * t)) < ((screenWidth - netWidth) / 2 - ballRadius))
+        touchGround = yof (fpos ballPos ballVel t) >= (screenHeight - ballRadius)
+        ballInLeft = (xof (fpos ballPos ballVel t) > ballRadius) && (xof (fpos ballPos ballVel t) < ((screenWidth - netWidth) / 2 - ballRadius))
         (chance1', chance2', lc')
           | doesCollide player1FinalPos = (player1Chance - 1, player2Chance, 1) 
           | doesCollide player2FinalPos = (player1Chance, player2Chance - 1, 2)
