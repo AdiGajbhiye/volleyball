@@ -29,6 +29,7 @@ data Action
   | Stop1Vel
   | Stop2Vel
   | BeginGame
+  | ResetGame
 
 data GameStatus
   = Playing
@@ -72,10 +73,10 @@ groundHeight :: Double
 groundHeight = 180
 
 netWidth :: Double
-netWidth = 30
+netWidth = 10
 
 netHeight :: Double
-netHeight = screenHeight*0.6
+netHeight = screenHeight*0.5
 
 playerRadius :: Double
 playerRadius = 50
@@ -140,6 +141,23 @@ update model@Model { .. } BeginGame =
       , player2Vel    = V2 0 0
       , ballPos       = V2 (if lastWin /= 2 then 300 else screenWidth - 300) 100
       , ballVel       = V2 0 0
+      }
+    , Cmd.none
+    )
+
+update model@Model { .. } ResetGame =
+  if gameStatus == Playing then (model, Cmd.none)
+  else
+    ( model
+      { player1Pos    = V2 200 baseline
+      , player1Vel    = V2 0 0
+      , player2Pos    = V2 (screenWidth - 200) baseline
+      , player2Vel    = V2 0 0
+      , lastWin       = 0
+      , ballPos       = V2 300 100
+      , ballVel       = V2 0 0
+      , player1Score  = 0
+      , player2Score  = 0
       }
     , Cmd.none
     )
@@ -210,13 +228,14 @@ update model@Model { .. } (Animate dt) =
       | doesCollide player2FinalPos = ballAfterCollision player2Pos player2Vel
       | (xof expBallPos <= ballRadius) || (xof expBallPos >= (screenWidth - ballRadius)) = (ballPos, reverseXVel ballVel)
       | (xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius) && (yof expBallPos >= screenHeight - netHeight) = (ballPos, reverseXVel ballVel)
-      | (xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius) && (yof expBallPos <= screenHeight - netHeight) && (yof expBallPos >= screenHeight - netHeight - ballRadius) = (ballPos, reflect expBallPos ballPos ballVel)
+      | (xof expBallPos >= (screenWidth - netWidth)/2 - ballRadius) && (xof expBallPos <= (screenWidth + netWidth)/2 + ballRadius) && (yof expBallPos <= screenHeight - netHeight) && (yof expBallPos >= screenHeight - netHeight - ballRadius) = (ballPos, reverseYVel ballVel)
       | yof expBallPos >= (screenHeight - ballRadius) = (ballPos, (V2 0 0))
       | otherwise = (expBallPos, expBallVel)
       where
         expBallPos = fpos ballPos ballVel t
         expBallVel = fvel ballVel t
         reverseXVel (V2 x y) = (V2 (-x) y)
+        reverseYVel (V2 x y) = (V2 x (-y))
     
     (score1, score2, chance1, chance2, status, lc, lw)
       | touchGround =
@@ -229,7 +248,7 @@ update model@Model { .. } (Animate dt) =
         touchGround = yof (fpos ballPos ballVel t) >= (screenHeight - ballRadius)
         ballInLeft = (xof (fpos ballPos ballVel t) > ballRadius) && (xof (fpos ballPos ballVel t) < ((screenWidth - netWidth) / 2 - ballRadius))
         (chance1', chance2', lc')
-          | doesCollide player1FinalPos = (player1Chance - 1, player2Chance, 1) 
+          | doesCollide player1FinalPos = (player1Chance - 1, player2Chance, 1)
           | doesCollide player2FinalPos = (player1Chance, player2Chance - 1, 2)
           | otherwise = (player1Chance, player2Chance, lastCollide)
 
@@ -327,6 +346,7 @@ subscriptions = Sub.batch
       Keyboard.RightKey -> Player2Right
       Keyboard.UpKey -> Player2Jump
       Keyboard.SpaceKey -> BeginGame
+      Keyboard.RKey -> ResetGame
       _ -> Idle)
   , Keyboard.ups $ \key -> (case key of
       Keyboard.AKey -> Stop1Vel
@@ -345,7 +365,7 @@ playingOverlay color Model { .. } =
                                          Text.color color $
                                          Text.toText score
     ] ++
-    (if gameStatus == Waiting then [centerNotice "Press Spcebar to resume"] else [])
+    (if gameStatus == Waiting then [centerNotice "Press Spacebar to resume", centerNotice "\n\nPress R to reset score"] else [])
 
   where
     score = printf "%d:%d" player1Score player2Score
